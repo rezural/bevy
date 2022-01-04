@@ -171,6 +171,8 @@ impl<'w, 's, T: Resource> EventWriter<'w, 's, T> {
     pub fn send_batch(&mut self, events: impl Iterator<Item = T>) {
         self.events.extend(events);
     }
+
+    // pub fn remove(&mut self, event: T)
 }
 
 pub struct ManualEventReader<T> {
@@ -343,6 +345,23 @@ impl<T: Resource> Events<T> {
         self.events_b.clear();
     }
 
+    pub fn remove_event(&mut self, event_id: EventId<T>) {
+        match self.state {
+            State::A => {
+                if event_id.id < self.events_a.len() {
+                    self.events_a.remove(event_id.id);
+                    self.event_count = self.event_count.saturating_sub(1);
+                }
+            }
+            State::B => {
+                if event_id.id < self.events_b.len() {
+                    self.events_b.remove(event_id.id);
+                    self.event_count = self.event_count.saturating_sub(1);
+                }
+            }
+        }
+    }
+
     /// Returns true if there are no events in this collection.
     #[inline]
     pub fn is_empty(&self) -> bool {
@@ -426,6 +445,7 @@ mod tests {
         let event_0 = TestEvent { i: 0 };
         let event_1 = TestEvent { i: 1 };
         let event_2 = TestEvent { i: 2 };
+        let event_rd = TestEvent { i: 3 };
 
         // this reader will miss event_0 and event_1 because it wont read them over the course of
         // two updates
@@ -445,6 +465,12 @@ mod tests {
             vec![],
             "second iteration of reader_a created before event results in zero events"
         );
+
+        events.send(event_rd);
+        let event_ids = get_event_ids(&events, &mut events.get_reader());
+        let event_id = event_ids.iter().last().unwrap();
+
+        events.remove_event(*event_id);
 
         let mut reader_b = events.get_reader();
 
@@ -516,6 +542,16 @@ mod tests {
         reader: &mut ManualEventReader<TestEvent>,
     ) -> Vec<TestEvent> {
         reader.iter(events).cloned().collect::<Vec<TestEvent>>()
+    }
+
+    fn get_event_ids(
+        events: &Events<TestEvent>,
+        reader: &mut ManualEventReader<TestEvent>,
+    ) -> Vec<EventId<TestEvent>> {
+        reader
+            .iter_with_id(events)
+            .map(|(_, eid)| eid)
+            .collect::<Vec<EventId<TestEvent>>>()
     }
 
     #[derive(PartialEq, Eq, Debug)]
